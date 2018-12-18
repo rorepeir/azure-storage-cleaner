@@ -57,7 +57,7 @@ public class QueueTriggerBlobDeleteProcessingJava {
                 CloudBlockBlob blob = (CloudBlockBlob)item;
 
                 context.getLogger().info("Blob found to be deleted:"+blob.getName());
-                blob.deleteIfExists();
+                blob.delete();
             }
         } catch (URISyntaxException e) {
             // move to DLQ
