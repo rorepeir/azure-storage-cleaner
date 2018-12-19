@@ -1,22 +1,25 @@
 package com.microsoft.ocp.latam;
 
-import java.net.URISyntaxException;
+import java.net.URI;
 import java.security.InvalidKeyException;
 
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.microsoft.azure.documentdb.Document;
+import com.microsoft.azure.documentdb.DocumentClient;
+import com.microsoft.azure.documentdb.DocumentClientException;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.QueueTrigger;
-import com.microsoft.azure.storage.CloudStorageAccount;
+import com.microsoft.azure.storage.StorageCredentials;
 import com.microsoft.azure.storage.StorageException;
-import com.microsoft.azure.storage.blob.CloudBlobClient;
-import com.microsoft.azure.storage.blob.CloudBlobContainer;
 import com.microsoft.azure.storage.blob.CloudBlockBlob;
-import com.microsoft.azure.storage.blob.ListBlobItem;
 import com.microsoft.ocp.latam.command.SendToDeadLetterQueueCmd;
+import com.microsoft.ocp.latam.cosmosdb.DocumentClientFactory;
 import com.microsoft.ocp.latam.data.BlobCleanerRequest;
+import com.microsoft.ocp.latam.data.ProcessedDelete;
+import com.microsoft.ocp.latam.util.GsonSingleton;
 
 /**
  * Azure Functions with Azure Storage Queue trigger.
@@ -40,29 +43,14 @@ public class QueueTriggerBlobDeleteProcessingJava {
         BlobCleanerRequest blobCleanerRequest = gsonUtil.fromJson(message, BlobCleanerRequest.class);
 
         try {
-            // create storage account reference
-            CloudStorageAccount account = CloudStorageAccount.parse(blobCleanerRequest.getConnectionString());
-
-            // create blob client reference
-            CloudBlobClient blobClient = account.createCloudBlobClient();
-
-            // get blob container reference
-            CloudBlobContainer containerRef = blobClient.getContainerReference(blobCleanerRequest.getContainerName());
-
             // fetch blob list given prefix
-            Iterable<ListBlobItem> blobList = containerRef.listBlobs(blobCleanerRequest.getPrefix());
-      
-            // iterate over, send all blob files to be deleted to Storage Queue
-            for (ListBlobItem item: blobList) {
-                CloudBlockBlob blob = (CloudBlockBlob)item;
-
-                context.getLogger().info("Blob found to be deleted:"+blob.getName());
-                blob.delete();
-            }
-        } catch (URISyntaxException e) {
-            // move to DLQ
-            blobCleanerRequest.setExceptionMessage(e.getClass().getName()+"-"+e.getMessage());
-            new SendToDeadLetterQueueCmd().execute(blobCleanerRequest);
+            StorageCredentials credentials = StorageCredentials.tryParseCredentials(blobCleanerRequest.getConnectionString());
+            URI blobURI = new URI(blobCleanerRequest.getAbsolutURI());
+            CloudBlockBlob blobToDelete = new CloudBlockBlob(blobURI, credentials);
+            blobToDelete.delete();
+            
+            // save processed delete
+            this.saveProcessedDelete(blobToDelete.getName(), blobCleanerRequest);
         } catch (InvalidKeyException e) {
             // move to DLQ
             blobCleanerRequest.setExceptionMessage(e.getClass().getName()+"-"+e.getMessage());
@@ -72,5 +60,30 @@ public class QueueTriggerBlobDeleteProcessingJava {
             blobCleanerRequest.setExceptionMessage(e.getClass().getName()+"-"+e.getMessage());
             new SendToDeadLetterQueueCmd().execute(blobCleanerRequest);
         } 
+    }
+
+    private void saveProcessedDelete(String name, BlobCleanerRequest blobCleanerRequest) {
+        // build processed delete
+        ProcessedDelete processedDelete = new ProcessedDelete();
+        processedDelete.setCorrelationId(blobCleanerRequest.getCorrelationId());
+        processedDelete.setObjectId(name.split("/")[1]);
+        processedDelete.setDeleteTime(System.currentTimeMillis());
+        processedDelete.setFileName(name);
+        processedDelete.setPath(blobCleanerRequest.getPrefix());
+        
+        // get cosmos db client
+        DocumentClient documentClient = DocumentClientFactory
+             .getDocumentClient();
+
+        // build document to be saved
+        Document newDocument = new Document(GsonSingleton.getInstance().toJson(processedDelete));
+
+        String collectionLink = String.format("/dbs/%s/colls/%s", "storagecleaner", "processed_delete");
+
+        try {
+            documentClient.createDocument(collectionLink, newDocument, null, false).getResource();
+        } catch (DocumentClientException e) {
+            e.printStackTrace();
+		}
     }
 }

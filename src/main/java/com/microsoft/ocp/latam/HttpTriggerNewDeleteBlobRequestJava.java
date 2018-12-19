@@ -2,11 +2,16 @@ package com.microsoft.ocp.latam;
 
 import java.net.URISyntaxException;
 import java.security.InvalidKeyException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.Optional;
+import java.util.UUID;
 
-import com.google.gson.FieldNamingPolicy;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpMethod;
 import com.microsoft.azure.functions.HttpRequestMessage;
@@ -21,6 +26,7 @@ import com.microsoft.azure.storage.queue.CloudQueue;
 import com.microsoft.azure.storage.queue.CloudQueueClient;
 import com.microsoft.azure.storage.queue.CloudQueueMessage;
 import com.microsoft.ocp.latam.data.BlobCleanerRequest;
+import com.microsoft.ocp.latam.util.GsonSingleton;
 
 /**
  * Azure Functions with HTTP Trigger.
@@ -41,13 +47,14 @@ public class HttpTriggerNewDeleteBlobRequestJava {
     public HttpResponseMessage run(
             @HttpTrigger(name = "req", methods = {HttpMethod.POST}, authLevel = AuthorizationLevel.FUNCTION) HttpRequestMessage<Optional<String>> request,
             final ExecutionContext context) {
+                
         context.getLogger().info("New Storage Delete Blob Request."+request.toString());
 
         // build request
         String requestParams = request.getBody().get();
-        Gson gsonUtil = new GsonBuilder().setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES).create();
-        BlobCleanerRequest blobCleanerRequest = gsonUtil.fromJson(requestParams, BlobCleanerRequest.class);
-        
+        BlobCleanerRequest blobCleanerRequest = GsonSingleton.getInstance().fromJson(requestParams, BlobCleanerRequest.class);
+        blobCleanerRequest.setCorrelationId(UUID.randomUUID().toString());
+
         // get reference to storage account queue
         CloudStorageAccount storageAccount;
         try {
@@ -60,10 +67,10 @@ public class HttpTriggerNewDeleteBlobRequestJava {
             CloudQueue queue = queueClient.getQueueReference(NEW_BLOB_DELETE_REQUEST_QUEUE_NAME);
 
             // Create a message and add it to the queue.
-            CloudQueueMessage message = new CloudQueueMessage(gsonUtil.toJson(blobCleanerRequest));
+            CloudQueueMessage message = new CloudQueueMessage(GsonSingleton.getInstance().toJson(blobCleanerRequest));
             queue.addMessage(message);
             
-            return request.createResponseBuilder(HttpStatus.OK).body("Request received successfully. Message id:"+message.getId()).build();
+            return request.createResponseBuilder(HttpStatus.OK).body("Request received successfully. Message id:"+blobCleanerRequest.getCorrelationId()).build();
         } catch (InvalidKeyException | URISyntaxException e) {
            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage()).build();
         } catch (StorageException e) {

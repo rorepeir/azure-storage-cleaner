@@ -2,13 +2,20 @@ package com.microsoft.ocp.latam;
 
 import java.net.URISyntaxException;
 import java.security.InvalidKeyException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Date;
 
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.microsoft.azure.documentdb.Document;
+import com.microsoft.azure.documentdb.DocumentClient;
+import com.microsoft.azure.documentdb.DocumentClientException;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.QueueTrigger;
@@ -22,7 +29,10 @@ import com.microsoft.azure.storage.queue.CloudQueue;
 import com.microsoft.azure.storage.queue.CloudQueueClient;
 import com.microsoft.azure.storage.queue.CloudQueueMessage;
 import com.microsoft.ocp.latam.command.SendToDeadLetterQueueCmd;
+import com.microsoft.ocp.latam.cosmosdb.DocumentClientFactory;
 import com.microsoft.ocp.latam.data.BlobCleanerRequest;
+import com.microsoft.ocp.latam.data.DeleteRequest;
+import com.microsoft.ocp.latam.util.GsonSingleton;
 
 /**
  * Azure Functions with Azure Storage Queue trigger.
@@ -45,7 +55,7 @@ public class QueueTriggerNewBlobDeleteRequestJava {
         // Parse json body request
         Gson gsonUtil = new GsonBuilder().setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES).create();
         BlobCleanerRequest blobCleanerRequest = gsonUtil.fromJson(message, BlobCleanerRequest.class);
-        Date dateLimit = getDateLimit(blobCleanerRequest.getDays());
+        Date dateLimit = getDateLimit(blobCleanerRequest.getDays(), context);
         context.getLogger().info("Date Limit: "+dateLimit.toString());
 
         try {
@@ -62,15 +72,25 @@ public class QueueTriggerNewBlobDeleteRequestJava {
             Iterable<ListBlobItem> blobList = containerRef.listBlobs(blobCleanerRequest.getPrefix());
       
             // iterate over, send all blob files to be deleted to Storage Queue
+            long count = 0;
             for (ListBlobItem item: blobList) {
                 CloudBlockBlob blob = (CloudBlockBlob)item;
 
                 Date createDate = blob.getProperties().getCreatedTime();
                 if (createDate.before(dateLimit)) {
+                    // set uri
+                    blobCleanerRequest.setAbsolutURI(blob.getUri().toString());
+                    
                     // send to delete queue
                     this.sendToDeleteQueue(blob.getName(), blobCleanerRequest, gsonUtil);
+
+                    // increase counter of files to be deleted
+                    count++;
                 }
             }
+
+            // save delete request
+            this.saveDeleteRequest(count, blobCleanerRequest);
         } catch (URISyntaxException e) {
             // move to DLQ
             blobCleanerRequest.setExceptionMessage(e.getClass().getName()+"-"+e.getMessage());
@@ -86,11 +106,34 @@ public class QueueTriggerNewBlobDeleteRequestJava {
         } 
     }
 
+    private void saveDeleteRequest(long count, BlobCleanerRequest blobCleanerRequest) {
+        DeleteRequest deleteRequest = new DeleteRequest();
+        deleteRequest.setCorrelationId(blobCleanerRequest.getCorrelationId());
+        deleteRequest.setCurrentTime(System.currentTimeMillis());
+        deleteRequest.setDays(blobCleanerRequest.getDays());
+        deleteRequest.setNumberOfFiles(count);
+        deleteRequest.setPath(blobCleanerRequest.getPrefix());
+
+        // get cosmos db client
+        DocumentClient documentClient = DocumentClientFactory
+             .getDocumentClient();
+
+        // build document to be saved
+        Document newDocument = new Document(GsonSingleton.getInstance().toJson(deleteRequest));
+
+        String collectionLink = String.format("/dbs/%s/colls/%s", "storagecleaner", "delete_request");
+
+        try {
+            documentClient.createDocument(collectionLink, newDocument, null, false).getResource();
+        } catch (DocumentClientException e) {
+            e.printStackTrace();
+		}
+    }
+
     private void sendToDeleteQueue(String name, BlobCleanerRequest blobCleanerRequest, Gson gsonUtil) throws Exception {
         // get reference to storage account queue
         CloudStorageAccount storageAccount;
         try {
-
             storageAccount = CloudStorageAccount.parse(blobCleanerRequest.getConnectionStringQueue());
 
             // Create the queue client.
@@ -110,10 +153,9 @@ public class QueueTriggerNewBlobDeleteRequestJava {
         }
     }
 
-    private Date getDateLimit(int days) {
-        LocalDate localDate = LocalDate.now();
-        localDate = localDate.minusDays(days + 1);
-        return Date.from(localDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
+    private Date getDateLimit(int days, ExecutionContext context) {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        return Date.from(now.minus(days,ChronoUnit.DAYS).toInstant());
     }
 
 }

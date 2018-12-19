@@ -9,6 +9,10 @@ public class BlobCleanerRequest {
     private String connectionStringQueue;
     private String deleteProcessingQueueName;
     private String exceptionMessage;
+    private String correlationId;
+    private String absolutURI;
+
+
 
     /**
      * @return the containerName
@@ -17,6 +21,34 @@ public class BlobCleanerRequest {
         return containerName;
     }
     
+    /**
+     * @return the absolutURI
+     */
+    public String getAbsolutURI() {
+        return absolutURI;
+    }
+
+    /**
+     * @param absolutURI the absolutURI to set
+     */
+    public void setAbsolutURI(String absolutURI) {
+        this.absolutURI = absolutURI;
+    }
+
+    /**
+     * @return the correlationId
+     */
+    public String getCorrelationId() {
+        return correlationId;
+    }
+
+    /**
+     * @param correlationId the correlationId to set
+     */
+    public void setCorrelationId(String correlationId) {
+        this.correlationId = correlationId;
+    }
+
     /**
      * @return the exceptionMessage
      */
