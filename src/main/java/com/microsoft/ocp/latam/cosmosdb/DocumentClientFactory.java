@@ -4,6 +4,9 @@ import com.microsoft.azure.documentdb.ConnectionPolicy;
 import com.microsoft.azure.documentdb.ConsistencyLevel;
 import com.microsoft.azure.documentdb.DocumentClient;
 
+/**
+ * Factory of document db client.
+ */
 public class DocumentClientFactory {
 
     private static final String HOST = System.getenv("COSMOS_DB_ENDPOINT");

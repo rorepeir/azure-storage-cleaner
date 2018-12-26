@@ -2,13 +2,11 @@ package com.microsoft.ocp.latam;
 
 import java.net.URISyntaxException;
 import java.security.InvalidKeyException;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.Random;
 
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
@@ -32,6 +30,7 @@ import com.microsoft.ocp.latam.command.SendToDeadLetterQueueCmd;
 import com.microsoft.ocp.latam.cosmosdb.DocumentClientFactory;
 import com.microsoft.ocp.latam.data.BlobCleanerRequest;
 import com.microsoft.ocp.latam.data.DeleteRequest;
+import com.microsoft.ocp.latam.util.GetWorkerQueue;
 import com.microsoft.ocp.latam.util.GsonSingleton;
 
 /**
@@ -72,7 +71,6 @@ public class QueueTriggerNewBlobDeleteRequestJava {
             Iterable<ListBlobItem> blobList = containerRef.listBlobs(blobCleanerRequest.getPrefix());
       
             // iterate over, send all blob files to be deleted to Storage Queue
-            long count = 0;
             for (ListBlobItem item: blobList) {
                 CloudBlockBlob blob = (CloudBlockBlob)item;
 
@@ -83,14 +81,8 @@ public class QueueTriggerNewBlobDeleteRequestJava {
                     
                     // send to delete queue
                     this.sendToDeleteQueue(blob.getName(), blobCleanerRequest, gsonUtil);
-
-                    // increase counter of files to be deleted
-                    count++;
                 }
             }
-
-            // save delete request
-            this.saveDeleteRequest(count, blobCleanerRequest);
         } catch (URISyntaxException e) {
             // move to DLQ
             blobCleanerRequest.setExceptionMessage(e.getClass().getName()+"-"+e.getMessage());
@@ -101,11 +93,13 @@ public class QueueTriggerNewBlobDeleteRequestJava {
             new SendToDeadLetterQueueCmd().execute(blobCleanerRequest);
         } catch (StorageException e) {
             // move to DLQ
+            if (e.getMessage() != null && e.getMessage().contains("blob does not exist")) {return;}
             blobCleanerRequest.setExceptionMessage(e.getClass().getName()+"-"+e.getMessage());
             new SendToDeadLetterQueueCmd().execute(blobCleanerRequest);
         } 
     }
 
+    @Deprecated
     private void saveDeleteRequest(long count, BlobCleanerRequest blobCleanerRequest) {
         DeleteRequest deleteRequest = new DeleteRequest();
         deleteRequest.setCorrelationId(blobCleanerRequest.getCorrelationId());
@@ -140,7 +134,7 @@ public class QueueTriggerNewBlobDeleteRequestJava {
             CloudQueueClient queueClient = storageAccount.createCloudQueueClient();
 
             // Retrieve a reference to a queue.
-            CloudQueue queue = queueClient.getQueueReference(blobCleanerRequest.getDeleteProcessingQueueName());
+            CloudQueue queue = getQueueReference(queueClient);
 
             // Create a message and add it to the queue.
             blobCleanerRequest.setPrefix(name);
@@ -152,6 +146,21 @@ public class QueueTriggerNewBlobDeleteRequestJava {
             throw e;
         }
     }
+
+    private CloudQueue getQueueReference(CloudQueueClient queueClient) throws URISyntaxException, StorageException {
+        int randomNumber = getRandomNumberInRange(1, 10);  
+        return GetWorkerQueue.getQueueReference(randomNumber, queueClient);
+    } 
+        
+    private static int getRandomNumberInRange(int min, int max) {
+
+		if (min >= max) {
+			throw new IllegalArgumentException("max must be greater than min");
+		}
+
+		Random r = new Random();
+		return r.nextInt((max - min) + 1) + min;
+	}
 
     private Date getDateLimit(int days, ExecutionContext context) {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);

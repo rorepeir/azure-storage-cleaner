@@ -4,6 +4,9 @@ import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+/**
+ * Gson singleton utility class to work with JSON
+ */
 public class GsonSingleton {
 
     private static Gson ourInstance = new GsonBuilder()

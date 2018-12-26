@@ -7,12 +7,9 @@ public class BlobCleanerRequest {
     private String connectionString;
     private int days;
     private String connectionStringQueue;
-    private String deleteProcessingQueueName;
     private String exceptionMessage;
     private String correlationId;
     private String absolutURI;
-
-
 
     /**
      * @return the containerName
@@ -61,20 +58,6 @@ public class BlobCleanerRequest {
      */
     public void setExceptionMessage(String exceptionMessage) {
         this.exceptionMessage = exceptionMessage;
-    }
-
-    /**
-     * @return the deleteProcessingQueueName
-     */
-    public String getDeleteProcessingQueueName() {
-        return deleteProcessingQueueName;
-    }
-
-    /**
-     * @param deleteProcessingQueueName the deleteProcessingQueueName to set
-     */
-    public void setDeleteProcessingQueueName(String deleteProcessingQueueName) {
-        this.deleteProcessingQueueName = deleteProcessingQueueName;
     }
 
     /**

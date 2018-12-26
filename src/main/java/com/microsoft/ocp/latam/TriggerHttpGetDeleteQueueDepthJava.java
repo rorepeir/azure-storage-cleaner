@@ -9,6 +9,9 @@ import com.microsoft.azure.storage.StorageException;
 import com.microsoft.azure.storage.queue.CloudQueue;
 import com.microsoft.azure.storage.queue.CloudQueueClient;
 import com.microsoft.ocp.latam.data.BlobCleanerRequest;
+import com.microsoft.ocp.latam.data.QueueDepth;
+import com.microsoft.ocp.latam.util.GetWorkerQueue;
+import com.microsoft.ocp.latam.util.GsonSingleton;
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -46,10 +49,18 @@ public class TriggerHttpGetDeleteQueueDepthJava {
             CloudQueueClient queueClient = storageAccount.createCloudQueueClient();
 
             // Retrieve a reference to a queue.
-            CloudQueue queue = queueClient.getQueueReference(blobCleanerRequest.getDeleteProcessingQueueName());
-            queue.downloadAttributes();
+            List<QueueDepth> depthList = new ArrayList<QueueDepth>();
+            for (int i=1; i < 11; i++) {
+                QueueDepth queueDepth = new QueueDepth();
+                CloudQueue queue = GetWorkerQueue.getQueueReference(i, queueClient);
+                queue.downloadAttributes();
 
-            return request.createResponseBuilder(HttpStatus.OK).body("Current Depth:"+queue.getApproximateMessageCount()).build();
+                queueDepth.setDepth(queue.getApproximateMessageCount());
+                queueDepth.setName(queue.getName());
+                depthList.add(queueDepth);
+            }
+            
+            return request.createResponseBuilder(HttpStatus.OK).body(GsonSingleton.getInstance().toJson(depthList)).build();
         } catch (InvalidKeyException | URISyntaxException e) {
            throw e;
         } catch (StorageException e) {

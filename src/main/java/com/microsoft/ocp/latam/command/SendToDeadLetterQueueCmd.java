@@ -15,10 +15,10 @@ import com.microsoft.ocp.latam.data.BlobCleanerRequest;
 
 public class SendToDeadLetterQueueCmd {
 
-    private final String DEAD_LETTER_QUEUE_NAME = "dead-letter-qeue";
+    private final String DEAD_LETTER_QUEUE_NAME = "dead-letter-queue";
     private Gson gsonUtil = new GsonBuilder().setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES).create();
 
-    public void execute (BlobCleanerRequest blobCleanerRequest) throws Exception {
+    public void execute (BlobCleanerRequest blobCleanerRequest) {
         // get reference to storage account queue
         CloudStorageAccount storageAccount;
         try {
@@ -35,9 +35,9 @@ public class SendToDeadLetterQueueCmd {
             CloudQueueMessage message = new CloudQueueMessage(gsonUtil.toJson(blobCleanerRequest));
             queue.addMessage(message);
         } catch (InvalidKeyException | URISyntaxException e) {
-           throw e;
+            e.printStackTrace();
         } catch (StorageException e) {
-            throw e;
+            e.printStackTrace();
         }
     }
 
