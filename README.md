@@ -1,6 +1,6 @@
 # azure-storage-cleaner
 
-This project removes expired files from Azure Blob. It leverages Azure Queues + Azure Functions. Basically, it creates a HTTP enpoint that receives a JSON with Azure Blob Path and Time To Live in days.
+This project removes expired files from Azure Blob. It leverages Azure Queues + Azure Functions. Basically, it creates a HTTP endpoint that receives a JSON with Azure Blob Path and Time To Live in days, after that, it list candidate blob to be removed and send to worker Azure Queues.
 
 ## Installation
 
